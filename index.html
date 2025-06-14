@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fusionador de Folios</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f8fafc;
+      color: #1e293b;
+    }
+    header {
+      background-color: #1d4ed8;
+      color: white;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    header img {
+      height: 60px;
+    }
+    main {
+      padding: 30px;
+      max-width: 1200px;
+      margin: auto;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 10px;
+    }
+    p {
+      margin-bottom: 20px;
+    }
+    input[type='file'] {
+      margin-bottom: 15px;
+    }
+    button {
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    button:hover {
+      background-color: #1e40af;
+    }
+    #descargar {
+      display: none;
+      margin-left: 20px;
+      background-color: #10b981;
+      padding: 10px 20px;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    #descargar:hover {
+      background-color: #059669;
+    }
+    #output {
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    table {
+      border-collapse: collapse;
+      margin-top: 30px;
+      width: 100%;
+      background-color: white;
+    }
+    th, td {
+      border: 1px solid #e2e8f0;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #e0f2fe;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="logo.jpg" alt="Logo de Ivanxs Technology">
+    <div>
+      <h1>Fusionador de Archivos Excel - Folios</h1>
+      <p>Sube varios archivos Excel con columnas de folios. Solo se conservarán las columnas relevantes.</p>
+    </div>
+  </header>
+  <main>
+    <input type="file" id="fileInput" multiple accept=".xlsx, .xls, .csv">
+    <button onclick="procesarArchivos()">Fusionar Archivos</button>
+    <a id="descargar">Descargar Excel fusionado</a>
+    <div id="output"></div>
+    <div id="tablaResultados"></div>
+  </main>
+
+  <script>
+    const columnasFinales = [
+      "FOLIO PISA", "Tecnico", "Tipo de Tarea", "FECHA", "DTO", "TEL", "ZONA",
+      "Num. Serie", "Id Par", "METRAJE", "CORDENADA 1 TERMINAL", "CORDENADA 2  CASA", "nombre de la persona"
+    ];
+
+    const mapaColumnas = {
+      "FOLIO PISA": 4,
+      "Tipo de Tarea": 9,
+      "FECHA": 18,
+      "DTO": 10,
+      "TEL": 5,
+      "ZONA": 1,
+      "nombre de la persona": 27
+    };
+
+    function procesarArchivos() {
+      const files = document.getElementById('fileInput').files;
+      if (files.length === 0) return alert('Selecciona al menos un archivo.');
+
+      let allData = [];
+      let archivosProcesados = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const range = XLSX.utils.decode_range(sheet['!ref']);
+
+          let json = [];
+          for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+            let row = {};
+            columnasFinales.forEach((col) => {
+              if (col === "Tecnico" || col.includes("CORDENADA") || col === "Num. Serie" || col === "Id Par" || col === "METRAJE") {
+                row[col] = "";
+              } else {
+                let cellIndex = mapaColumnas[col];
+                const cellAddress = { c: cellIndex, r: R };
+                const cellRef = XLSX.utils.encode_cell(cellAddress);
+                const cell = sheet[cellRef];
+                let value = cell ? cell.v : "";
+                if (col === "FECHA" && cell && cell.t === 'd') {
+                  const fecha = new Date(value);
+                  const dia = String(fecha.getDate()).padStart(2, '0');
+                  const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+                  const anio = fecha.getFullYear();
+                  value = `${dia}/${mes}/${anio}`;
+                }
+                row[col] = value;
+              }
+            });
+            json.push(row);
+          }
+
+          allData = allData.concat(json);
+          archivosProcesados++;
+
+          if (archivosProcesados === files.length) {
+            mostrarYExportar(allData);
+            renderizarTabla(allData);
+          }
+        };
+        reader.readAsArrayBuffer(files[i]);
+      }
+    }
+
+    function mostrarYExportar(data) {
+      if (data.length === 0) {
+        document.getElementById("output").textContent = "No se encontraron datos con las columnas requeridas.";
+        return;
+      }
+
+      const hoja = XLSX.utils.json_to_sheet(data);
+      const libro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(libro, hoja, "Folios Fusionados");
+
+      const wbout = XLSX.write(libro, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbout], { type: 'application/octet-stream' });
+
+      const link = document.getElementById("descargar");
+      link.href = URL.createObjectURL(blob);
+      link.download = "folios_fusionados.xlsx";
+      link.style.display = "inline";
+      link.textContent = "Descargar archivo fusionado";
+
+      document.getElementById("output").textContent = `Total de registros fusionados: ${data.length}`;
+    }
+
+    function renderizarTabla(data) {
+      const tablaContenedor = document.getElementById("tablaResultados");
+      if (data.length === 0) return;
+
+      let html = '<table><thead><tr>';
+      columnasFinales.forEach(col => html += `<th>${col}</th>`);
+      html += '</tr></thead><tbody>';
+      data.forEach(row => {
+        html += '<tr>';
+        columnasFinales.forEach(col => html += `<td>${row[col]}</td>`);
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+
+      tablaContenedor.innerHTML = html;
+    }
+  </script>
+</body>
+</html>
